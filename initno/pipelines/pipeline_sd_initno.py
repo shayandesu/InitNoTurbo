@@ -850,7 +850,7 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
                 # Forward pass of denoising with text conditioning
                 if use_grad_checkpoint:
                     noise_pred_text = checkpoint.checkpoint(self.unet, optimized_latents, t, text_embeddings[1].unsqueeze(0), use_reentrant=False).sample
-                else: noise_pred_text = self.unet(scaled_latents, t, encoder_hidden_states=text_embeddings.unsqueeze(0)).sample
+                else: noise_pred_text = self.unet(scaled_latents, t, encoder_hidden_states=text_embeddings).sample
 
                 joint_loss, cross_attn_loss, self_attn_loss = self.fn_compute_loss(
                     indices=indices, K=5)

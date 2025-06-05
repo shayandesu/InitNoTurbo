@@ -20,7 +20,7 @@ os.makedirs('{:s}'.format(result_root), exist_ok=True)
 
 def main():
 
-    pipe = StableDiffusionInitNOPipeline.from_pretrained(SD_TURBO).to("cuda")
+    pipe = StableDiffusionInitNOPipeline.from_pretrained(SD14_VERSION).to("cuda")
     # print(list(pipe.unet.attn_processors.keys())[:10])
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
         pipe.scheduler.config, timestep_spacing="trailing")
