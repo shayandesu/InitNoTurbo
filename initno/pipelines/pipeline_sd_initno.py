@@ -534,7 +534,7 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
         
         # cross attention map preprocessing
         cross_attention_maps = aggregate_cross_attention_maps[:, :, 1:-1]
-        cross_attention_maps = cross_attention_maps * 350
+        cross_attention_maps = cross_attention_maps * 100
         cross_attention_maps = torch.nn.functional.softmax(cross_attention_maps, dim=-1)
 
         # Shift indices since we removed the first token
@@ -571,8 +571,9 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
             else: clean_cross_attn_loss = clean_cross_attn_loss + clean_cross_attention_map_cur_token_background.max() * 0
 
         cross_attn_loss_list = [max(0 * curr_max, 1.0 - curr_max) for curr_max in topk_value_list]
-        # cross_attn_loss = max(cross_attn_loss_list)
-        cross_attn_loss = cross_attn_loss_list[-1]
+        # print(f"cross_attn_loss_list: {cross_attn_loss_list}")
+        cross_attn_loss = max(cross_attn_loss_list)
+        # cross_attn_loss = cross_attn_loss_list[-1]
 
         # ------------------------------
         # cross attention alignment loss
@@ -649,7 +650,7 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
         
         # cross attention map preprocessing
         cross_attention_maps = aggregate_cross_attention_maps[:, :, 1:-1]
-        cross_attention_maps = cross_attention_maps * 350
+        cross_attention_maps = cross_attention_maps * 100
         cross_attention_maps = torch.nn.functional.softmax(cross_attention_maps, dim=-1)
 
         # Shift indices since we removed the first token
@@ -662,12 +663,15 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
         topk_value_list, topk_coord_list_list = [], []
         for i in indices:
             cross_attention_map_cur_token = cross_attention_maps[:, :, i]
+            print(f"Norm of cross_attn for token {i}: {cross_attention_map_cur_token.norm().item():.4f}")
+            print(f"Max of cross_attn for token {i}: {cross_attention_map_cur_token.max().item():.4f}\n")
             if smooth_attentions: cross_attention_map_cur_token = fn_smoothing_func(cross_attention_map_cur_token)
             
             topk_coord_list, _ = fn_get_topk(cross_attention_map_cur_token, K=K)
 
             topk_value = 0
-            for coord_x, coord_y in topk_coord_list: topk_value = topk_value + cross_attention_map_cur_token[coord_x, coord_y]
+            for coord_x, coord_y in topk_coord_list:
+                topk_value = topk_value + cross_attention_map_cur_token[coord_x, coord_y]
             topk_value = topk_value / K
 
             topk_value_list.append(topk_value)
@@ -688,8 +692,12 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
             else: clean_cross_attention_loss = clean_cross_attention_loss + clean_cross_attention_map_cur_token_background.max() * 0
 
         cross_attn_loss_list = [max(0 * curr_max, 1.0 - curr_max) for curr_max in topk_value_list]
-        # cross_attn_loss = max(cross_attn_loss_list)
-        cross_attn_loss = cross_attn_loss_list[-1]
+        tmp_list = [c.item() for c in cross_attn_loss_list]
+        tmptopk = [t.item() for t in topk_value_list]
+        # print(f"Top-K values: {tmptopk}")
+        # print(f"cross_attn_loss_list: {tmp_list}")
+        cross_attn_loss = max(cross_attn_loss_list)
+        # cross_attn_loss = cross_attn_loss_list[-1]
 
         # ----------------------------
         # self-attention conflict loss
@@ -822,7 +830,7 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
         latents = latents.clone().detach()
         log_var, mu = torch.zeros_like(latents), torch.zeros_like(latents)
         log_var, mu = log_var.clone().detach().requires_grad_(True), mu.clone().detach().requires_grad_(True)
-        optimizer = Adam([log_var, mu], lr=1e-3, eps=1e-3)
+        optimizer = Adam([log_var, mu], lr=1e-2, eps=1e-3)
         # optimizer = torch.optim.SGD([log_var, mu], lr=60)
 
         # Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
@@ -852,8 +860,11 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
                     noise_pred_text = checkpoint.checkpoint(self.unet, optimized_latents, t, text_embeddings[1].unsqueeze(0), use_reentrant=False).sample
                 else: noise_pred_text = self.unet(scaled_latents, t, encoder_hidden_states=text_embeddings).sample
 
+                print(f"Timestep {i+1}/{len(timesteps)}:")
                 joint_loss, cross_attn_loss, self_attn_loss = self.fn_compute_loss(
-                    indices=indices, K=5)
+                    indices=indices, K=1)
+                
+                # if i > 1:
                 joint_loss_list.append(joint_loss), cross_attn_loss_list.append(cross_attn_loss), self_attn_loss_list.append(self_attn_loss)
 
                 if denoising_step_for_loss > 1:
@@ -869,10 +880,12 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
                     # compute the previous noisy sample x_t -> x_t-1
                     optimized_latents = self.scheduler.step(noise_pred, t, optimized_latents, **extra_step_kwargs).prev_sample
                 
-            joint_loss      = sum(joint_loss_list) / denoising_step_for_loss
+            # joint_loss      = sum(joint_loss_list) / denoising_step_for_loss
+            joint_loss      = joint_loss_list[-1]
             # cross_attn_loss = max(cross_attn_loss_list)
             cross_attn_loss = cross_attn_loss_list[-1]
-            self_attn_loss  = max(self_attn_loss_list)
+            # self_attn_loss  = max(self_attn_loss_list)
+            self_attn_loss  = self_attn_loss_list[-1]
             
             # print loss records
             joint_loss_list         = [_.item() for _ in joint_loss_list]
@@ -891,7 +904,7 @@ class StableDiffusionInitNOPipeline(DiffusionPipeline, TextualInversionLoaderMix
             t1 = self_attn_loss.item()
             t2 = cross_attn_loss.item()
             print(f"\n===== {iteration} =====\n")
-            print(f"[GRAD] mu: {mu.grad.mean().item():.10f}, log_var: {log_var.grad.mean().item():.10f}")
+            print(f"[GRAD] mu: {mu.grad.norm().item():.10f}, log_var: {log_var.grad.norm().item():.10f}")
             print(f"Joint Loss: {joint_loss.item():.4f} | self : {t1:.10f} | cross : {t2:.10f}")
             optimizer.step()
 
